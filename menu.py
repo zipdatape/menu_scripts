@@ -428,6 +428,25 @@ def configure_cronjob():
     run_command("sudo systemctl restart cron")
     print_status("Cronjob configurado", 0)
 
+def docker_submenu():
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("        Submenú de Contenedores Docker")
+        print("--------------------------------------------------")
+        print("1. Desplegar Selenium")
+        print("2. Volver al menú principal")
+        print("--------------------------------------------------")
+        docker_choice = input("Seleccione una opción [1-2]: ").strip()
+        if docker_choice == '1':
+            deploy_selenium()
+        elif docker_choice == '2':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        input("Presione [Enter] para continuar...")
+
+
 def main_menu():
     total_options = 17
     while True:
