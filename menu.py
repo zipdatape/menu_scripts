@@ -29,6 +29,24 @@ def get_all_users():
                 users.append(line.split(':')[0])
     return users
 
+def deploy_selenium():
+    # Verificar si Docker está instalado
+    if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        print_status("Docker no está instalado. Por favor, instálalo primero.", 1)
+        return
+
+    # Pedir al usuario el secreto para el visor VNC de Selenium
+    selenium_secret = getpass.getpass("Ingrese el secret para Selenium: ")
+
+    # Comando para ejecutar el contenedor Selenium Hub
+    hub_command = f'docker run -d --name selenium-hub -p 4444:4444 selenium/hub'
+    # Comando para ejecutar el contenedor Selenium Node Firefox con el secret para el visor VNC
+    node_command = f'docker run -d --name selenium-firefox --link selenium-hub:hub -e SE_EVENT_BUS_HOST=hub -e SE_EVENT_BUS_PUBLISH_PORT=4442 -e SE_EVENT_BUS_SUBSCRIBE_PORT=4443 -e SE_OPTS="-Dwebdriver.chrome.driver=/usr/local/bin/chromedriver -Dwebdriver.gecko.driver=/usr/local/bin/geckodriver -Dwebdriver.chrome.logfile=/tmp/chromedriver.log -Dwebdriver.gecko.logfile=/tmp/geckodriver.log -Dwebdriver.chrome.verboseLogging=true -Dwebdriver.gecko.verboseLogging=true -Dwebdriver.vnc.password={selenium_secret}" selenium/node-firefox'
+
+    print_status("Desplegando Selenium Hub...", subprocess.call(hub_command, shell=True))
+    print_status("Desplegando Selenium Node Firefox...", subprocess.call(node_command, shell=True))
+
+
 def configure_ssh_logging_for_user(user):
     log_dir = f"/var/log/ssh_commands/{user}"
     log_file = f"{log_dir}/ssh_commands_{user}_$(date +%Y%m%d).log"
@@ -411,7 +429,7 @@ def configure_cronjob():
     print_status("Cronjob configurado", 0)
 
 def main_menu():
-    total_options = 16
+    total_options = 17
     while True:
         os.system('clear')
         print("--------------------------------------------------")
@@ -433,9 +451,10 @@ def main_menu():
         print("14. Monitoreo SSH por log")
         print("15. Expandir disco")
         print("16. Automatizar optimización del sistema con cronjob")
-        print("17. Salir")
+        print("17. Gestionar Contenedores Docker")
+        print("18. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-17]: ").strip()
+        choice = input("Seleccione una opción [1-18]: ").strip()
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -469,6 +488,8 @@ def main_menu():
         elif choice == '16':
             configure_cronjob()
         elif choice == '17':
+            docker_submenu()
+        elif choice == '18':
             print("Saliendo...")
             break
         else:
