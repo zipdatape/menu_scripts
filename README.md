@@ -10,8 +10,8 @@ Este script proporciona un menú interactivo para configurar y optimizar un serv
 
 ## Instalación
 
-1. Clona el repositorio o descarga el archivo `setup_server.py`.
-2. Asigna permisos de ejecución al archivo:
+1. Clona el repositorio o descarga el archivo `menu.py`.
+2. Ejecución al archivo:
 
-   ```bash
-   chmod +x setup_server.py
+   ```Python
+   python3 menu.py
