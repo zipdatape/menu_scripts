@@ -28,7 +28,23 @@ def get_all_users():
             if '/home' in line:
                 users.append(line.split(':')[0])
     return users
-
+    
+def update_script():
+    repo_url = "https://github.com/De0xyS3/menu_scripts"
+    script_path = "/tmp/menu.py"
+    current_script_path = os.path.realpath(__file__)
+    
+    # Clonar o actualizar el repositorio
+    if not os.path.isdir("/tmp/menu_scripts"):
+        subprocess.run(["git", "clone", repo_url, "/tmp/menu_scripts"], check=True)
+    else:
+        subprocess.run(["git", "-C", "/tmp/menu_scripts", "pull"], check=True)
+    
+    # Copiar el script actualizado
+    shutil.copyfile(f"/tmp/menu_scripts/main/menu.py", current_script_path)
+    print_status("Script actualizado. Por favor, vuelva a ejecutar el script.", 0)
+    exit()
+    
 def deploy_selenium():
     # Verificar si Docker está instalado
     if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
@@ -626,7 +642,7 @@ def docker_submenu():
 
 
 def main_menu():
-    total_options = 18
+    total_options = 19
     while True:
         os.system('clear')
         print("--------------------------------------------------")
@@ -650,9 +666,10 @@ def main_menu():
         print("16. Automatizar optimización del sistema con cronjob")
         print("17. Gestionar Contenedores Docker")
         print("18. Configurar red")
-        print("19. Salir")
+        print("19. Actualizar script")
+        print("20. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-19]: ").strip()
+        choice = input("Seleccione una opción [1-20]: ").strip()
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -690,11 +707,19 @@ def main_menu():
         elif choice == '18':
             network_submenu()
         elif choice == '19':
+            update_script()
+        elif choice == '20':
             print("Saliendo...")
             break
         else:
             print("Opción inválida! Por favor seleccione una opción válida.")
         input("Presione [Enter] para continuar...")
+
+if __name__ == "__main__":
+    if is_root():
+        main_menu()
+    else:
+        print("Este script debe ejecutarse como root o utilizando sudo.")
 
 if __name__ == "__main__":
     if is_root():
