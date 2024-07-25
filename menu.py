@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
 import os
 import getpass
 import subprocess
+import shutil
 
 def print_status(message, status, index=None, total=None):
     checkmark = '\u2714'
