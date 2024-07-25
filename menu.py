@@ -46,7 +46,57 @@ def deploy_selenium():
     print_status("Desplegando Selenium Hub...", subprocess.call(hub_command, shell=True))
     print_status("Desplegando Selenium Node Firefox...", subprocess.call(node_command, shell=True))
 
+def manage_elasticsearch_indices():
+    # Solicitar si se está usando SSL
+    use_ssl = input("¿Está utilizando SSL para conectarse a Elasticsearch? (si/no): ").strip().lower()
+    protocol = "https" if use_ssl in ['si', 's'] else "http"
+    
+    # Solicitar credenciales
+    es_host = input("Ingrese el host de Elasticsearch (ej. localhost:9200): ").strip()
+    es_user = input("Ingrese el nombre de usuario de Elasticsearch: ").strip()
+    es_password = getpass.getpass("Ingrese la contraseña de Elasticsearch: ")
 
+    # Listar índices
+    command = f'curl -k -u {es_user}:{es_password} -X GET "{protocol}://{es_host}/_cat/indices?v&s=store.size:desc"'
+    indices_output = subprocess.getoutput(command)
+    print("Índices en Elasticsearch:")
+    print(indices_output)
+
+    # Procesar la salida para mostrar los índices y permitir al usuario seleccionar cuál eliminar
+    indices_lines = indices_output.split('\n')
+    if len(indices_lines) > 1:
+        headers = indices_lines[0]
+        indices = indices_lines[1:]
+        print(headers)
+        for idx, line in enumerate(indices, start=1):
+            print(f"{idx}. {line}")
+
+        print(f"{len(indices) + 1}. Volver al menú principal")
+
+        while True:
+            choice = input("Seleccione un índice para eliminar por número: ").strip()
+            if choice.isdigit():
+                choice = int(choice)
+                if choice == len(indices) + 1:
+                    break
+                elif 1 <= choice <= len(indices):
+                    index_name = indices[choice - 1].split()[2]
+                    confirm = input(f"¿Está seguro de que desea eliminar el índice {index_name}? (si/no): ").strip().lower()
+                    if confirm in ['si', 's']:
+                        delete_command = f'curl -k -u {es_user}:{es_password} -X DELETE "{protocol}://{es_host}/{index_name}"'
+                        if run_command(delete_command):
+                            print_status(f"Índice {index_name} eliminado con éxito", 0)
+                        else:
+                            print_status(f"Error al eliminar el índice {index_name}", 1)
+                    else:
+                        print("Operación cancelada.")
+                else:
+                    print("Selección inválida.")
+            else:
+                print("Selección inválida.")
+    else:
+        print("No se encontraron índices.")
+        
 def configure_ssh_logging_for_user(user):
     log_dir = f"/var/log/ssh_commands/{user}"
     log_file = f"{log_dir}/ssh_commands_{user}_$(date +%Y%m%d).log"
@@ -428,6 +478,134 @@ def configure_cronjob():
     run_command("sudo systemctl restart cron")
     print_status("Cronjob configurado", 0)
 
+def list_interfaces():
+    interfaces = os.listdir('/sys/class/net/')
+    return [iface for iface in interfaces if iface != 'lo']
+
+def configure_static_ip():
+    while True:
+        interfaces = list_interfaces()
+        print("Interfaces disponibles:")
+        for idx, iface in enumerate(interfaces, start=1):
+            print(f"{idx}. {iface}")
+        print(f"{len(interfaces) + 1}. Volver al menú anterior")
+        
+        iface_choice = input("Seleccione una interfaz por número: ").strip()
+        if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
+            interface = interfaces[int(iface_choice) - 1]
+            ip_address = input("Ingrese la IP estática: ").strip()
+            netmask = input("Ingrese la máscara de red (e.g., 255.255.255.0): ").strip()
+            gateway = input("Ingrese la puerta de enlace: ").strip()
+            dns = input("Ingrese los servidores DNS (separados por espacio): ").strip()
+
+            config_lines = [
+                f"auto {interface}",
+                f"iface {interface} inet static",
+                f"    address {ip_address}",
+                f"    netmask {netmask}",
+                f"    gateway {gateway}",
+                f"    dns-nameservers {dns}"
+            ]
+
+            with open(f"/etc/network/interfaces.d/{interface}", "w") as config_file:
+                config_file.write("\n".join(config_lines) + "\n")
+
+            print_status(f"Configuración de IP estática agregada para {interface}", 0)
+            subprocess.run(["sudo", "ifdown", interface], check=True)
+            subprocess.run(["sudo", "ifup", interface], check=True)
+            print_status(f"IP estática {ip_address} activada en {interface}", 0)
+            break
+        elif iface_choice == str(len(interfaces) + 1):
+            break
+        else:
+            print("Selección inválida.")
+
+def configure_dhcp():
+    while True:
+        interfaces = list_interfaces()
+        print("Interfaces disponibles:")
+        for idx, iface in enumerate(interfaces, start=1):
+            print(f"{idx}. {iface}")
+        print(f"{len(interfaces) + 1}. Volver al menú anterior")
+        
+        iface_choice = input("Seleccione una interfaz por número: ").strip()
+        if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
+            interface = interfaces[int(iface_choice) - 1]
+
+            config_lines = [
+                f"auto {interface}",
+                f"iface {interface} inet dhcp"
+            ]
+
+            with open(f"/etc/network/interfaces.d/{interface}", "w") as config_file:
+                config_file.write("\n".join(config_lines) + "\n")
+
+            print_status(f"Configuración DHCP agregada para {interface}", 0)
+            subprocess.run(["sudo", "ifdown", interface], check=True)
+            subprocess.run(["sudo", "ifup", interface], check=True)
+            print_status(f"DHCP activado en {interface}", 0)
+            break
+        elif iface_choice == str(len(interfaces) + 1):
+            break
+        else:
+            print("Selección inválida.")
+
+def configure_virtual_ip():
+    while True:
+        interfaces = list_interfaces()
+        print("Interfaces disponibles:")
+        for idx, iface in enumerate(interfaces, start=1):
+            print(f"{idx}. {iface}")
+        print(f"{len(interfaces) + 1}. Volver al menú anterior")
+
+        iface_choice = input("Seleccione una interfaz por número: ").strip()
+        if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
+            interface = interfaces[int(iface_choice) - 1]
+            ip_address = input("Ingrese la IP virtual: ").strip()
+            netmask = input("Ingrese la máscara de red (e.g., 255.255.255.0): ").strip()
+            gateway = input("Ingrese la puerta de enlace (opcional): ").strip()
+
+            config_line = f"auto {interface}:0\niface {interface}:0 inet static\naddress {ip_address}\nnetmask {netmask}\n"
+            if gateway:
+                config_line += f"gateway {gateway}\n"
+
+            with open(f"/etc/network/interfaces.d/{interface}:0", "w") as config_file:
+                config_file.write(config_line)
+
+            print_status(f"Configuración de IP virtual agregada para {interface}", 0)
+            subprocess.run(["sudo", "ifup", f"{interface}:0"], check=True)
+            print_status(f"IP virtual {ip_address} activada en {interface}:0", 0)
+            break
+        elif iface_choice == str(len(interfaces) + 1):
+            break
+        else:
+            print("Selección inválida.")
+
+def network_submenu():
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("        Submenú de Configuración de Red")
+        print("--------------------------------------------------")
+        print("1. Configurar IP estática")
+        print("2. Configurar DHCP")
+        print("3. Configurar IP virtual")
+        print("4. Volver al menú principal")
+        print("--------------------------------------------------")
+        network_choice = input("Seleccione una opción [1-4]: ").strip()
+        if network_choice == '1':
+            configure_static_ip()
+        elif network_choice == '2':
+            configure_dhcp()
+        elif network_choice == '3':
+            configure_virtual_ip()
+        elif network_choice == '4':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        input("Presione [Enter] para continuar...")
+        
+
 def docker_submenu():
     while True:
         os.system('clear')
@@ -448,7 +626,7 @@ def docker_submenu():
 
 
 def main_menu():
-    total_options = 17
+    total_options = 18
     while True:
         os.system('clear')
         print("--------------------------------------------------")
@@ -471,9 +649,10 @@ def main_menu():
         print("15. Expandir disco")
         print("16. Automatizar optimización del sistema con cronjob")
         print("17. Gestionar Contenedores Docker")
-        print("18. Salir")
+        print("18. Configurar red")
+        print("19. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-18]: ").strip()
+        choice = input("Seleccione una opción [1-19]: ").strip()
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -509,6 +688,8 @@ def main_menu():
         elif choice == '17':
             docker_submenu()
         elif choice == '18':
+            network_submenu()
+        elif choice == '19':
             print("Saliendo...")
             break
         else:
