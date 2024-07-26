@@ -3,6 +3,9 @@ import os
 import getpass
 import subprocess
 import shutil
+import itertools
+import time
+import threading
 
 def print_status(message, status, index=None, total=None):
     checkmark = '\u2714'
@@ -30,39 +33,35 @@ def get_all_users():
             if '/home' in line:
                 users.append(line.split(':')[0])
     return users
-    
+
+def spinning_cursor():
+    while True:
+        for cursor in '|/-\\':
+            yield cursor
+
 def update_script():
     repo_url = "https://github.com/De0xyS3/menu_scripts"
     script_path = "/tmp/menu.py"
-    current_script_path = os.path.realpath(__file__)
-    
+    current_script_path = "/usr/local/bin/menu"
+
     # Clonar o actualizar el repositorio
     if not os.path.isdir("/tmp/menu_scripts"):
         subprocess.run(["git", "clone", repo_url, "/tmp/menu_scripts"], check=True)
     else:
         subprocess.run(["git", "-C", "/tmp/menu_scripts", "pull"], check=True)
-    
+
     # Copiar el script actualizado
-    shutil.copyfile(f"/tmp/menu_scripts/main/menu.py", current_script_path)
+    shutil.copyfile(f"/tmp/menu_scripts/main/menu.py", script_path)
+    shutil.copyfile(script_path, current_script_path)
     print_status("Script actualizado. Por favor, vuelva a ejecutar el script.", 0)
     exit()
-    
-def deploy_selenium():
-    # Verificar si Docker está instalado
-    if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
-        print_status("Docker no está instalado. Por favor, instálalo primero.", 1)
-        return
 
-    # Pedir al usuario el secreto para el visor VNC de Selenium
-    selenium_secret = getpass.getpass("Ingrese el secret para Selenium: ")
-
-    # Comando para ejecutar el contenedor Selenium Hub
-    hub_command = f'docker run -d --name selenium-hub -p 4444:4444 selenium/hub'
-    # Comando para ejecutar el contenedor Selenium Node Firefox con el secret para el visor VNC
-    node_command = f'docker run -d --name selenium-firefox --link selenium-hub:hub -e SE_EVENT_BUS_HOST=hub -e SE_EVENT_BUS_PUBLISH_PORT=4442 -e SE_EVENT_BUS_SUBSCRIBE_PORT=4443 -e SE_OPTS="-Dwebdriver.chrome.driver=/usr/local/bin/chromedriver -Dwebdriver.gecko.driver=/usr/local/bin/geckodriver -Dwebdriver.chrome.logfile=/tmp/chromedriver.log -Dwebdriver.gecko.logfile=/tmp/geckodriver.log -Dwebdriver.chrome.verboseLogging=true -Dwebdriver.gecko.verboseLogging=true -Dwebdriver.vnc.password={selenium_secret}" selenium/node-firefox'
-
-    print_status("Desplegando Selenium Hub...", subprocess.call(hub_command, shell=True))
-    print_status("Desplegando Selenium Node Firefox...", subprocess.call(node_command, shell=True))
+def check_for_updates():
+    repo_url = "https://github.com/De0xyS3/menu_scripts"
+    if not os.path.isdir("/tmp/menu_scripts"):
+        subprocess.run(["git", "clone", repo_url, "/tmp/menu_scripts"], check=True)
+    else:
+        subprocess.run(["git", "-C", "/tmp/menu_scripts", "pull"], check=True)
 
 def manage_elasticsearch_indices():
     # Solicitar si se está usando SSL
@@ -114,7 +113,24 @@ def manage_elasticsearch_indices():
                 print("Selección inválida.")
     else:
         print("No se encontraron índices.")
-        
+
+def deploy_selenium():
+    # Verificar si Docker está instalado
+    if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        print_status("Docker no está instalado. Por favor, instálalo primero.", 1)
+        return
+
+    # Pedir al usuario el secreto para el visor VNC de Selenium
+    selenium_secret = getpass.getpass("Ingrese el secret para Selenium: ")
+
+    # Comando para ejecutar el contenedor Selenium Hub
+    hub_command = f'docker run -d --name selenium-hub -p 4444:4444 selenium/hub'
+    # Comando para ejecutar el contenedor Selenium Node Firefox con el secret para el visor VNC
+    node_command = f'docker run -d --name selenium-firefox --link selenium-hub:hub -e SE_EVENT_BUS_HOST=hub -e SE_EVENT_BUS_PUBLISH_PORT=4442 -e SE_EVENT_BUS_SUBSCRIBE_PORT=4443 -e SE_OPTS="-Dwebdriver.chrome.driver=/usr/local/bin/chromedriver -Dwebdriver.gecko.driver=/usr/local/bin/geckodriver -Dwebdriver.chrome.logfile=/tmp/chromedriver.log -Dwebdriver.gecko.logfile=/tmp/geckodriver.log -Dwebdriver.chrome.verboseLogging=true -Dwebdriver.gecko.verboseLogging=true -Dwebdriver.vnc.password={selenium_secret}" selenium/node-firefox'
+
+    print_status("Desplegando Selenium Hub...", subprocess.call(hub_command, shell=True))
+    print_status("Desplegando Selenium Node Firefox...", subprocess.call(node_command, shell=True))
+
 def configure_ssh_logging_for_user(user):
     log_dir = f"/var/log/ssh_commands/{user}"
     log_file = f"{log_dir}/ssh_commands_{user}_$(date +%Y%m%d).log"
@@ -599,6 +615,38 @@ def configure_virtual_ip():
         else:
             print("Selección inválida.")
 
+def configure_new_disk():
+    print("Configurando nuevo disco...")
+    while True:
+        disks = subprocess.getoutput("lsblk -dn -o NAME,SIZE").splitlines()
+        print("Discos disponibles:")
+        for idx, disk in enumerate(disks, start=1):
+            print(f"{idx}. {disk}")
+        print(f"{len(disks) + 1}. Volver al menú anterior")
+
+        choice = input("Seleccione un disco por número: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(disks):
+            disk = disks[int(choice) - 1].split()[0]
+            mount_point = input("Ingrese el punto de montaje (ej. /mnt/nuevo_disco): ").strip()
+
+            # Crear partición, formatear y montar el disco
+            subprocess.run(["sudo", "parted", f"/dev/{disk}", "mklabel", "gpt"], check=True)
+            subprocess.run(["sudo", "parted", f"/dev/{disk}", "mkpart", "primary", "ext4", "0%", "100%"], check=True)
+            subprocess.run(["sudo", "mkfs.ext4", f"/dev/{disk}1"], check=True)
+            subprocess.run(["sudo", "mkdir", "-p", mount_point], check=True)
+            subprocess.run(["sudo", "mount", f"/dev/{disk}1", mount_point], check=True)
+
+            # Agregar a /etc/fstab
+            with open("/etc/fstab", "a") as fstab:
+                fstab.write(f"/dev/{disk}1 {mount_point} ext4 defaults 0 0\n")
+
+            print_status(f"Disco /dev/{disk} configurado y montado en {mount_point}", 0)
+            break
+        elif choice == str(len(disks) + 1):
+            break
+        else:
+            print("Selección inválida.")
+
 def network_submenu():
     while True:
         os.system('clear')
@@ -642,9 +690,8 @@ def docker_submenu():
             print("Opción inválida! Por favor seleccione una opción válida.")
         input("Presione [Enter] para continuar...")
 
-
 def main_menu():
-    total_options = 19
+    total_options = 21
     while True:
         os.system('clear')
         print("--------------------------------------------------")
@@ -669,9 +716,11 @@ def main_menu():
         print("17. Gestionar Contenedores Docker")
         print("18. Configurar red")
         print("19. Actualizar script")
-        print("20. Salir")
+        print("20. Gestionar índices de Elasticsearch")
+        print("21. Configurar nuevo disco")
+        print("22. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-20]: ").strip()
+        choice = input("Seleccione una opción [1-22]: ").strip()
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -711,6 +760,10 @@ def main_menu():
         elif choice == '19':
             update_script()
         elif choice == '20':
+            manage_elasticsearch_indices()
+        elif choice == '21':
+            configure_new_disk()
+        elif choice == '22':
             print("Saliendo...")
             break
         else:
@@ -718,12 +771,16 @@ def main_menu():
         input("Presione [Enter] para continuar...")
 
 if __name__ == "__main__":
-    if is_root():
-        main_menu()
-    else:
-        print("Este script debe ejecutarse como root o utilizando sudo.")
-
-if __name__ == "__main__":
+    print("Buscando actualizaciones...")
+    spinner = spinning_cursor()
+    spinner_thread = threading.Thread(target=check_for_updates)
+    spinner_thread.start()
+    while spinner_thread.is_alive():
+        print(next(spinner), end='\r')
+        time.sleep(0.1)
+    spinner_thread.join()
+    print("Script ya actualizado.")
+    
     if is_root():
         main_menu()
     else:
