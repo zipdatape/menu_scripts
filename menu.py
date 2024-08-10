@@ -6,6 +6,7 @@ import shutil
 import itertools
 import time
 import threading
+import yaml
 
 def print_status(message, status, index=None, total=None):
     checkmark = '\u2714'
@@ -516,6 +517,23 @@ def list_interfaces():
     interfaces = os.listdir('/sys/class/net/')
     return [iface for iface in interfaces if iface != 'lo']
 
+def get_ip_info(interface):
+    ip_info = {}
+    ip_output = subprocess.getoutput(f"ip a show {interface}")
+    ip_lines = ip_output.splitlines()
+    for line in ip_lines:
+        if "inet " in line:
+            parts = line.split()
+            ip_info['ip'] = parts[1]  # IP and netmask
+            break
+    return ip_info
+
+def get_gateway_info():
+    gateway_output = subprocess.getoutput("ip route | grep default")
+    parts = gateway_output.split()
+    gateway = parts[2]  # Gateway is the 3rd element in the output
+    return gateway
+
 def configure_static_ip():
     while True:
         interfaces = list_interfaces()
@@ -527,32 +545,82 @@ def configure_static_ip():
         iface_choice = input("Seleccione una interfaz por número: ").strip()
         if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
             interface = interfaces[int(iface_choice) - 1]
-            ip_address = input("Ingrese la IP estática: ").strip()
-            netmask = input("Ingrese la máscara de red (e.g., 255.255.255.0): ").strip()
-            gateway = input("Ingrese la puerta de enlace: ").strip()
-            dns = input("Ingrese los servidores DNS (separados por espacio): ").strip()
-
-            config_lines = [
-                f"auto {interface}",
-                f"iface {interface} inet static",
-                f"    address {ip_address}",
-                f"    netmask {netmask}",
-                f"    gateway {gateway}",
-                f"    dns-nameservers {dns}"
-            ]
-
-            with open(f"/etc/network/interfaces.d/{interface}", "w") as config_file:
-                config_file.write("\n".join(config_lines) + "\n")
-
-            print_status(f"Configuración de IP estática agregada para {interface}", 0)
-            subprocess.run(["sudo", "ifdown", interface], check=True)
-            subprocess.run(["sudo", "ifup", interface], check=True)
-            print_status(f"IP estática {ip_address} activada en {interface}", 0)
+            ip_info = get_ip_info(interface)
+            gateway = get_gateway_info()
+            configure_static_ip(interface, ip_info, gateway)
             break
         elif iface_choice == str(len(interfaces) + 1):
             break
         else:
             print("Selección inválida.")
+
+def check_netplan_config(interface):
+    netplan_dir = "/etc/netplan/"
+    config_files = os.listdir(netplan_dir)
+    for file in config_files:
+        with open(os.path.join(netplan_dir, file), 'r') as f:
+            config = yaml.safe_load(f)
+            if "ethernets" in config.get("network", {}):
+                if interface in config["network"]["ethernets"]:
+                    return config["network"]["ethernets"][interface]
+    return None
+
+def check_interfaces_config(interface):
+    config_file = "/etc/network/interfaces"
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            lines = f.readlines()
+        for i, line in enumerate(lines):
+            if line.startswith(f"iface {interface} inet"):
+                return lines[i:i+3]  # Assuming max 3 lines per interface
+    return None
+
+def configure_virtual_ip():
+    interfaces = list_interfaces()
+    print("Interfaces disponibles:")
+    for idx, iface in enumerate(interfaces, start=1):
+        print(f"{idx}. {iface}")
+    iface_choice = input("Seleccione una interfaz por número: ").strip()
+    if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
+        interface = interfaces[int(iface_choice) - 1]
+
+        # Check configuration using Netplan or interfaces
+        config = check_netplan_config(interface)
+        if not config:
+            config = check_interfaces_config(interface)
+
+        if config:
+            if 'dhcp4' in config and config['dhcp4']:
+                print(f"La interfaz {interface} está configurada con DHCP.")
+                set_static = input("¿Desea configurar esta IP como estática en Netplan para agregar una IP virtual? (si/no): ").strip().lower()
+                if set_static in ['si', 's']:
+                    configure_static_ip(interface)
+                else:
+                    print("No se puede configurar una IP virtual en una interfaz con DHCP.")
+                    return
+            else:
+                print(f"La interfaz {interface} está configurada con una IP estática.")
+        else:
+            print(f"No se encontró configuración para la interfaz {interface}.")
+
+        ip_address = input("Ingrese la IP virtual (ej. 10.10.10.2/24): ").strip()
+
+        netplan_config_path = f"/etc/netplan/{interface}.yaml"
+        with open(netplan_config_path, "r") as file:
+            config_content = yaml.safe_load(file)
+
+        config_content["network"]["ethernets"][interface].setdefault("addresses", []).append(ip_address)
+
+        with open(netplan_config_path, "w") as file:
+            yaml.dump(config_content, file, default_flow_style=False)
+
+        print_status(f"Configuración de IP virtual {ip_address} agregada para {interface}", 0)
+        subprocess.run(["sudo", "netplan", "apply"], check=True)
+        print_status(f"IP virtual {ip_address} activada en {interface}", 0)
+    else:
+        print("Selección inválida.")
+
+
 
 def configure_dhcp():
     while True:
@@ -578,37 +646,6 @@ def configure_dhcp():
             subprocess.run(["sudo", "ifdown", interface], check=True)
             subprocess.run(["sudo", "ifup", interface], check=True)
             print_status(f"DHCP activado en {interface}", 0)
-            break
-        elif iface_choice == str(len(interfaces) + 1):
-            break
-        else:
-            print("Selección inválida.")
-
-def configure_virtual_ip():
-    while True:
-        interfaces = list_interfaces()
-        print("Interfaces disponibles:")
-        for idx, iface in enumerate(interfaces, start=1):
-            print(f"{idx}. {iface}")
-        print(f"{len(interfaces) + 1}. Volver al menú anterior")
-
-        iface_choice = input("Seleccione una interfaz por número: ").strip()
-        if iface_choice.isdigit() and 1 <= int(iface_choice) <= len(interfaces):
-            interface = interfaces[int(iface_choice) - 1]
-            ip_address = input("Ingrese la IP virtual: ").strip()
-            netmask = input("Ingrese la máscara de red (e.g., 255.255.255.0): ").strip()
-            gateway = input("Ingrese la puerta de enlace (opcional): ").strip()
-
-            config_line = f"auto {interface}:0\niface {interface}:0 inet static\naddress {ip_address}\nnetmask {netmask}\n"
-            if gateway:
-                config_line += f"gateway {gateway}\n"
-
-            with open(f"/etc/network/interfaces.d/{interface}:0", "w") as config_file:
-                config_file.write(config_line)
-
-            print_status(f"Configuración de IP virtual agregada para {interface}", 0)
-            subprocess.run(["sudo", "ifup", f"{interface}:0"], check=True)
-            print_status(f"IP virtual {ip_address} activada en {interface}:0", 0)
             break
         elif iface_choice == str(len(interfaces) + 1):
             break
@@ -772,13 +809,13 @@ def main_menu():
 
 if __name__ == "__main__":
     print("Buscando actualizaciones...")
-    spinner = spinning_cursor()
-    spinner_thread = threading.Thread(target=check_for_updates)
-    spinner_thread.start()
-    while spinner_thread.is_alive():
-        print(next(spinner), end='\r')
-        time.sleep(0.1)
-    spinner_thread.join()
+    # spinner = spinning_cursor()
+    # spinner_thread = threading.Thread(target=check_for_updates)
+    # spinner_thread.start()
+    # while spinner_thread.is_alive():
+    #     print(next(spinner), end='\r')
+    #     time.sleep(0.1)
+    # spinner_thread.join()
     print("Script ya actualizado.")
     
     if is_root():
