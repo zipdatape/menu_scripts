@@ -822,9 +822,3 @@ if __name__ == "__main__":
         main_menu()
     else:
         print("Este script debe ejecutarse como root o utilizando sudo.")
-    print("Script ya actualizado.")
-    
-    if is_root():
-        main_menu()
-    else:
-        print("Este script debe ejecutarse como root o utilizando sudo.")
