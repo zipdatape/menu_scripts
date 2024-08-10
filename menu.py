@@ -809,13 +809,19 @@ def main_menu():
 
 if __name__ == "__main__":
     print("Buscando actualizaciones...")
-     spinner = spinning_cursor()
-     spinner_thread = threading.Thread(target=check_for_updates)
-     spinner_thread.start()
-     while spinner_thread.is_alive():
-         print(next(spinner), end='\r')
-         time.sleep(0.1)
-     spinner_thread.join()
+    spinner = spinning_cursor()
+    spinner_thread = threading.Thread(target=check_for_updates)
+    spinner_thread.start()
+    while spinner_thread.is_alive():
+        print(next(spinner), end='\r')
+        time.sleep(0.1)
+    spinner_thread.join()
+    print("Script ya actualizado.")
+    
+    if is_root():
+        main_menu()
+    else:
+        print("Este script debe ejecutarse como root o utilizando sudo.")
     print("Script ya actualizado.")
     
     if is_root():
