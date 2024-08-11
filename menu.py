@@ -727,8 +727,117 @@ def docker_submenu():
             print("Opción inválida! Por favor seleccione una opción válida.")
         input("Presione [Enter] para continuar...")
 
+
+
+
+def configure_samba():
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("        Submenú de Configuración Samba")
+        print("--------------------------------------------------")
+        print("1. Instalar Samba")
+        print("2. Publicar carpeta compartida")
+        print("3. Establecer permisos para la carpeta")
+        print("4. Volver al menú principal")
+        print("--------------------------------------------------")
+        samba_choice = input("Seleccione una opción [1-4]: ").strip()
+        if samba_choice == '1':
+            install_samba()
+        elif samba_choice == '2':
+            share_folder_samba()
+        elif samba_choice == '3':
+            set_samba_permissions()
+        elif samba_choice == '4':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        input("Presione [Enter] para continuar...")
+
+def install_samba():
+    print("Instalando Samba...")
+    if run_command('sudo apt-get update') and run_command('sudo apt-get install -y samba'):
+        print_status("Samba instalado", 0)
+    else:
+        print_status("Error al instalar Samba", 1)
+
+def share_folder_samba():
+    folder_to_share = input("Ingrese la ruta completa de la carpeta a compartir: ").strip()
+    share_name = input("Ingrese el nombre para la carpeta compartida: ").strip()
+
+    with open('/etc/samba/smb.conf', 'a') as smb_conf:
+        smb_conf.write(f"""
+[{share_name}]
+   path = {folder_to_share}
+   browseable = yes
+   read only = no
+   guest ok = yes
+""")
+
+    run_command('sudo systemctl restart smbd')
+    print_status(f"Carpeta {folder_to_share} compartida como {share_name}", 0)
+
+def set_samba_permissions():
+    folder_to_set = input("Ingrese la ruta completa de la carpeta para establecer permisos: ").strip()
+    user = input("Ingrese el nombre de usuario que tendrá acceso: ").strip()
+
+    if run_command(f'sudo chown -R {user}:{user} {folder_to_set}') and run_command(f'sudo chmod -R 0777 {folder_to_set}'):
+        print_status(f"Permisos establecidos en {folder_to_set} para el usuario {user}", 0)
+    else:
+        print_status("Error al establecer permisos", 1)
+
+def configure_nfs():
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("        Submenú de Configuración NFS")
+        print("--------------------------------------------------")
+        print("1. Instalar NFS Server")
+        print("2. Compartir carpeta con NFS")
+        print("3. Establecer permisos para NFS")
+        print("4. Volver al menú principal")
+        print("--------------------------------------------------")
+        nfs_choice = input("Seleccione una opción [1-4]: ").strip()
+        if nfs_choice == '1':
+            install_nfs()
+        elif nfs_choice == '2':
+            share_folder_nfs()
+        elif nfs_choice == '3':
+            set_nfs_permissions()
+        elif nfs_choice == '4':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        input("Presione [Enter] para continuar...")
+
+def install_nfs():
+    print("Instalando NFS Server...")
+    if run_command('sudo apt-get update') and run_command('sudo apt-get install -y nfs-kernel-server'):
+        print_status("NFS Server instalado", 0)
+    else:
+        print_status("Error al instalar NFS Server", 1)
+
+def share_folder_nfs():
+    folder_to_share = input("Ingrese la ruta completa de la carpeta a compartir: ").strip()
+    client_ip = input("Ingrese la IP del cliente que tendrá acceso: ").strip()
+
+    with open('/etc/exports', 'a') as exports:
+        exports.write(f"{folder_to_share} {client_ip}(rw,sync,no_subtree_check)\n")
+
+    run_command('sudo exportfs -a')
+    run_command('sudo systemctl restart nfs-kernel-server')
+    print_status(f"Carpeta {folder_to_share} compartida con el cliente {client_ip}", 0)
+
+def set_nfs_permissions():
+    folder_to_set = input("Ingrese la ruta completa de la carpeta para establecer permisos: ").strip()
+    if run_command(f'sudo chmod -R 0777 {folder_to_set}'):
+        print_status(f"Permisos 0777 establecidos en {folder_to_set}", 0)
+    else:
+        print_status("Error al establecer permisos", 1)
+
+
 def main_menu():
-    total_options = 21
+    total_options = 23
     while True:
         os.system('clear')
         print("--------------------------------------------------")
@@ -755,9 +864,11 @@ def main_menu():
         print("19. Actualizar script")
         print("20. Gestionar índices de Elasticsearch")
         print("21. Configurar nuevo disco")
-        print("22. Salir")
+        print("22. Configurar Samba")
+        print("23. Configurar NFS")
+        print("24. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-22]: ").strip()
+        choice = input("Seleccione una opción [1-24]: ").strip()
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -801,6 +912,10 @@ def main_menu():
         elif choice == '21':
             configure_new_disk()
         elif choice == '22':
+            configure_samba()
+        elif choice == '23':
+            configure_nfs()
+        elif choice == '24':
             print("Saliendo...")
             break
         else:
