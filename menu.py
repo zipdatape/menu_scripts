@@ -39,7 +39,90 @@ def spinning_cursor():
     while True:
         for cursor in '|/-\\':
             yield cursor
+def list_elasticsearch_indices():
+    # Función básica para listar índices
+    print("Listado básico de índices en Elasticsearch")
 
+def manage_elasticsearch_indices():
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("      Submenú de Gestión de Índices Elasticsearch")
+        print("--------------------------------------------------")
+        print("1. Listar índices de Elasticsearch")
+        print("2. Cambiar número de réplicas de índices (uno o todos)")
+        print("3. Volver al menú principal")
+        print("--------------------------------------------------")
+        choice = input("Seleccione una opción [1-3]: ").strip()
+
+        if choice == '1':
+            list_elasticsearch_indices()  # Función existente para listar índices (puedes actualizarla según tu necesidad)
+        elif choice == '2':
+            advanced_manage_elasticsearch_indices()  # Función avanzada para gestionar réplicas de índices
+        elif choice == '3':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        input("Presione [Enter] para continuar...")
+
+def advanced_manage_elasticsearch_indices():
+    # Solicitar si se está usando SSL
+    use_ssl = input("¿Está utilizando SSL para conectarse a Elasticsearch? (si/no): ").strip().lower()
+    protocol = "https" if use_ssl in ['si', 's'] else "http"
+
+    # Solicitar credenciales
+    es_host = input("Ingrese el host de Elasticsearch (ej. localhost:9200): ").strip()
+    es_user = input("Ingrese el nombre de usuario de Elasticsearch: ").strip()
+    es_password = getpass.getpass("Ingrese la contraseña de Elasticsearch: ")
+
+    # Listar índices
+    command = f'curl -k -u {es_user}:{es_password} -X GET "{protocol}://{es_host}/_cat/indices?v&s=store.size:desc"'
+    indices_output = subprocess.getoutput(command)
+    print("Índices en Elasticsearch:")
+    print(indices_output)
+
+    # Procesar la salida para mostrar los índices
+    indices_lines = indices_output.split('\n')
+    if len(indices_lines) > 1:
+        headers = indices_lines[0]
+        indices = indices_lines[1:]
+        print(headers)
+        for idx, line in enumerate(indices, start=1):
+            print(f"{idx}. {line.split()[2]}")
+
+        print(f"{len(indices) + 1}. Cambiar réplicas en todos los índices")
+        print(f"{len(indices) + 2}. Volver al menú principal")
+
+        while True:
+            choice = input("Seleccione una opción: ").strip()
+            if choice.isdigit():
+                choice = int(choice)
+
+                # Opción para modificar un índice individual
+                if 1 <= choice <= len(indices):
+                    index_name = indices[choice - 1].split()[2]
+                    replicas = input(f"Ingrese el nuevo número de réplicas para el índice {index_name}: ").strip()
+                    update_command = f'curl -X PUT "{protocol}://{es_host}/{index_name}/_settings" -H \'Content-Type: application/json\' -d\'{{"index": {{"number_of_replicas": {replicas}}}}}\' -u {es_user}:{es_password} -k'
+                    result = subprocess.getoutput(update_command)
+                    print(result)
+
+                # Opción para modificar todos los índices
+                elif choice == len(indices) + 1:
+                    replicas = input("Ingrese el nuevo número de réplicas para todos los índices: ").strip()
+                    update_command = f'curl -X PUT "{protocol}://{es_host}/*/_settings" -H \'Content-Type: application/json\' -d\'{{"index": {{"number_of_replicas": {replicas}}}}}\' -u {es_user}:{es_password} -k'
+                    result = subprocess.getoutput(update_command)
+                    print(result)
+
+                # Volver al menú principal
+                elif choice == len(indices) + 2:
+                    break
+                else:
+                    print("Selección inválida.")
+            else:
+                print("Selección inválida.")
+    else:
+        print("No se encontraron índices.")
+        
 def update_script():
     repo_url = "https://github.com/De0xyS3/menu_scripts"
     script_path = "/tmp/menu.py"
@@ -64,7 +147,7 @@ def check_for_updates():
     else:
         subprocess.run(["git", "-C", "/tmp/menu_scripts", "pull"], check=True)
 
-def manage_elasticsearch_indices():
+def list_elasticsearch_indices():
     # Solicitar si se está usando SSL
     use_ssl = input("¿Está utilizando SSL para conectarse a Elasticsearch? (si/no): ").strip().lower()
     protocol = "https" if use_ssl in ['si', 's'] else "http"
