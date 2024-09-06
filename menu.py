@@ -39,9 +39,6 @@ def spinning_cursor():
     while True:
         for cursor in '|/-\\':
             yield cursor
-def list_elasticsearch_indices():
-    # Función básica para listar índices
-    print("Listado básico de índices en Elasticsearch")
 
 def manage_elasticsearch_indices():
     while True:
