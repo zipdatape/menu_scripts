@@ -7,7 +7,7 @@ Este script proporciona un menú interactivo completo para configurar, optimizar
 ### 🔧 Configuración Básica
 - **Docker Mejorado**: Instalación automática de las versiones más recientes de Docker y Docker Compose
 - **Usuarios SSH Avanzados**: Creación de usuarios con opción de permisos sudo y configuración de claves SSH
-- **Gestión de Versiones**: Selección de versiones específicas para servicios como MySQL, MariaDB, Nginx, PHP
+- **Gestión de Versiones**: Selección de versiones específicas para servicios como MySQL, MariaDB, Nginx, PHP, Node.js
 
 ### 🔒 Seguridad
 - **Fail2Ban**: Instalación y configuración automática para proteger SSH
@@ -158,6 +158,7 @@ El script presenta un menú organizado en categorías:
 - Configurar MySQL/MariaDB
 - Instalar Docker (versión más reciente)
 - Instalar Nginx, PHP, Laravel, Git
+- Instalar Node.js, npm, PM2 y NVM
 
 ### Seguridad
 - Instalar Fail2Ban
@@ -195,11 +196,105 @@ El script presenta un menú organizado en categorías:
 
 ## 🔧 Características Técnicas
 
+### Node.js y Herramientas de Desarrollo
+
+#### Instalación de Node.js
+El script ofrece múltiples opciones para instalar Node.js:
+
+1. **Versión más reciente (LTS)**: Instalación automática desde NodeSource
+2. **NVM**: Para gestionar múltiples versiones
+3. **Versión específica**: Usando NVM para instalar cualquier versión
+4. **PM2**: Process Manager para aplicaciones en producción
+
+**Comandos útiles después de la instalación:**
+```bash
+# Verificar instalación
+node --version
+npm --version
+
+# Con NVM
+nvm list                    # Listar versiones instaladas
+nvm install 18.17.0        # Instalar versión específica
+nvm use 18.17.0            # Cambiar a versión específica
+nvm alias default 18.17.0  # Establecer versión por defecto
+
+# Con PM2
+pm2 start app.js           # Iniciar aplicación
+pm2 list                   # Listar aplicaciones
+pm2 logs                   # Ver logs
+pm2 restart app_name       # Reiniciar aplicación
+pm2 stop app_name          # Detener aplicación
+pm2 save                   # Guardar configuración
+```
+
 ### Docker Mejorado
 - Consulta automática de versiones más recientes desde GitHub
 - Instalación desde repositorio oficial de Docker
+- Script de diagnóstico completo (`docker-diagnostic.sh`)
+- Script de instalación mejorado (`install-docker.sh`)
+- Múltiples métodos de instalación con fallback automático
+- Verificación completa de instalación
 - Configuración automática de grupos de usuario
 - Docker Compose con la versión más reciente
+
+### Node.js y Herramientas de Desarrollo
+- **Node.js**: Instalación de la versión más reciente desde NodeSource
+- **NVM (Node Version Manager)**: Gestión de múltiples versiones de Node.js
+- **npm**: Gestor de paquetes de Node.js incluido automáticamente
+- **PM2**: Process Manager para aplicaciones Node.js en producción
+- **Múltiples métodos de instalación**: NodeSource, Snap, repositorios de Ubuntu
+- **Selección de versiones**: Instalar versiones específicas usando NVM
+- **Configuración automática**: Variables de entorno y configuración de PM2
+
+### Scripts de Diagnóstico e Instalación
+
+#### `docker-diagnostic.sh`
+Script completo de diagnóstico para Docker que incluye:
+- Verificación del sistema operativo y dependencias
+- Análisis de repositorios Docker
+- Verificación de instalación y versiones
+- Comprobación de servicios y permisos
+- Pruebas de funcionalidad
+- Análisis de configuración de red
+- Revisión de logs del sistema
+- Recomendaciones específicas para resolver problemas
+- Modo de reparación automática (requiere root)
+
+**Uso:**
+```bash
+# Diagnóstico completo
+./docker-diagnostic.sh
+
+# Reparación automática (requiere root)
+sudo ./docker-diagnostic.sh --fix
+
+# Mostrar ayuda
+./docker-diagnostic.sh --help
+```
+
+#### `install-docker.sh`
+Script de instalación mejorado con múltiples métodos de fallback:
+- Verificación previa del sistema
+- Instalación de dependencias
+- Configuración de repositorio oficial
+- Instalación de paquetes Docker
+- Instalación de Docker Compose standalone
+- Configuración de servicios y permisos
+- Verificación completa de instalación
+- Diagnóstico post-instalación
+- Información de uso y documentación
+
+**Uso:**
+```bash
+# Instalación completa
+./install-docker.sh
+
+# Solo diagnóstico
+./install-docker.sh --diagnostic
+
+# Mostrar ayuda
+./install-docker.sh --help
+```
 
 ### Usuarios SSH Avanzados
 - Creación de usuarios con opción de permisos sudo
@@ -274,6 +369,93 @@ Si encuentras algún problema o tienes sugerencias:
 2. Crea un nuevo issue con detalles del problema
 3. Incluye información del sistema y pasos para reproducir el problema
 
+## 🛠️ Troubleshooting
+
+### Problemas Comunes
+
+1. **Error de permisos**: Asegúrate de ejecutar el script con `sudo`
+2. **Dependencias faltantes**: Ejecuta `sudo apt-get update && sudo apt-get upgrade`
+3. **Problemas de red**: Verifica la conectividad a internet
+4. **Errores de Python**: Instala las dependencias con `pip3 install -r requirements.txt`
+
+### Problemas Específicos de Docker
+
+#### Error en la instalación de Docker
+Si encuentras errores durante la instalación de Docker:
+
+1. **Ejecutar diagnóstico completo:**
+   ```bash
+   ./docker-diagnostic.sh
+   ```
+
+2. **Intentar reparación automática:**
+   ```bash
+   sudo ./docker-diagnostic.sh --fix
+   ```
+
+3. **Usar script de instalación mejorado:**
+   ```bash
+   ./install-docker.sh
+   ```
+
+4. **Verificar manualmente:**
+   ```bash
+   # Verificar si Docker está instalado
+   which docker
+   docker --version
+   
+   # Verificar servicio
+   sudo systemctl status docker
+   
+   # Verificar permisos
+   groups $USER
+   ls -la /var/run/docker.sock
+   ```
+
+#### Problemas de permisos de Docker
+Si no puedes ejecutar Docker sin sudo:
+
+```bash
+# Agregar usuario al grupo docker
+sudo usermod -aG docker $USER
+
+# Aplicar cambios (cerrar sesión y volver a iniciar)
+newgrp docker
+
+# Verificar
+docker ps
+```
+
+#### Problemas de red con Docker
+Si Docker no puede conectarse a internet:
+
+```bash
+# Verificar bridge Docker
+ip addr show docker0
+
+# Reiniciar Docker
+sudo systemctl restart docker
+
+# Verificar DNS
+docker run busybox nslookup google.com
+```
+
+### Logs y Diagnóstico
+
+Para diagnosticar problemas, revisa los logs del sistema:
+```bash
+# Ver logs del sistema
+sudo journalctl -xe
+
+# Ver logs específicos de servicios
+sudo systemctl status docker
+sudo systemctl status mysql
+sudo systemctl status nginx
+
+# Ver logs de Docker
+sudo journalctl -u docker --no-pager -n 50
+```
+
 ## 🔄 Changelog
 
 ### v2.0.0 (Mejorado)
@@ -292,3 +474,11 @@ Si encuentras algún problema o tienes sugerencias:
 - ✅ **NUEVO**: Alias útiles para administración
 - ✅ **NUEVO**: Script de verificación de instalación
 - ✅ **NUEVO**: Documentación completa del servicio
+- ✅ **NUEVO**: Script de diagnóstico de Docker (`docker-diagnostic.sh`)
+- ✅ **NUEVO**: Script de instalación mejorado de Docker (`install-docker.sh`)
+- ✅ **NUEVO**: Múltiples métodos de instalación con fallback automático
+- ✅ **NUEVO**: Sección de troubleshooting específica para Docker
+- ✅ **NUEVO**: Instalación de Node.js con múltiples métodos
+- ✅ **NUEVO**: NVM (Node Version Manager) para gestión de versiones
+- ✅ **NUEVO**: PM2 (Process Manager) para aplicaciones Node.js
+- ✅ **NUEVO**: Verificación completa de instalaciones Node.js

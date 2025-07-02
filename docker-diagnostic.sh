@@ -289,7 +289,7 @@ check_logs() {
     
     # Verificar logs del sistema
     echo "Últimos logs del sistema relacionados con Docker:"
-    journalctl --no-pager -n 10 | grep -i docker | head -5 | sed 's/^/  /'
+    journalctl --no-pager -n 10 | grep -i docker | head -5 | sed 's/^/    /'
     
     echo ""
 }

@@ -305,6 +305,300 @@ def verify_docker_installation():
         print(f"Error en verificación: {e}")
         return False
 
+def get_latest_nodejs_version():
+    """Obtiene la versión más reciente de Node.js"""
+    try:
+        response = requests.get("https://api.github.com/repos/nodejs/node/releases/latest")
+        if response.status_code == 200:
+            data = response.json()
+            version = data['tag_name']
+            return version
+        else:
+            print_status("Error al obtener versión de Node.js, usando versión por defecto", 1)
+            return "v20.10.0"
+    except Exception as e:
+        print(f"Error al obtener versión de Node.js: {e}")
+        return "v20.10.0"
+
+def install_nvm():
+    """Instala NVM (Node Version Manager)"""
+    print("Instalando NVM (Node Version Manager)...")
+    
+    # Obtener la versión más reciente de NVM
+    try:
+        response = requests.get("https://api.github.com/repos/nvm-sh/nvm/releases/latest")
+        if response.status_code == 200:
+            data = response.json()
+            nvm_version = data['tag_name']
+        else:
+            nvm_version = "v0.39.0"  # Versión por defecto
+    except:
+        nvm_version = "v0.39.0"
+    
+    print(f"Instalando NVM {nvm_version}...")
+    
+    # Instalar NVM
+    install_command = f'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{nvm_version}/install.sh | bash'
+    
+    if run_command(install_command):
+        print_status("NVM instalado correctamente", 0)
+        
+        # Configurar variables de entorno
+        nvm_config = '''
+# NVM Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \\. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+'''
+        
+        # Agregar configuración a .bashrc si no existe
+        bashrc_path = os.path.expanduser("~/.bashrc")
+        if os.path.exists(bashrc_path):
+            with open(bashrc_path, 'r') as f:
+                content = f.read()
+            
+            if 'NVM_DIR' not in content:
+                with open(bashrc_path, 'a') as f:
+                    f.write(nvm_config)
+                print_status("Configuración de NVM agregada a .bashrc", 0)
+        
+        print("Para usar NVM, ejecuta: source ~/.bashrc")
+        print("Luego puedes usar comandos como:")
+        print("  nvm install node      # Instalar última versión de Node.js")
+        print("  nvm install 18.17.0   # Instalar versión específica")
+        print("  nvm use 18.17.0       # Cambiar a versión específica")
+        print("  nvm list              # Listar versiones instaladas")
+        
+        return True
+    else:
+        print_status("Error al instalar NVM", 1)
+        return False
+
+def install_nodejs_latest():
+    """Instala la versión más reciente de Node.js"""
+    print("Instalando Node.js (versión más reciente)...")
+    
+    # Método 1: Usar NodeSource repository (recomendado)
+    commands = [
+        'curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -',
+        'sudo apt-get install -y nodejs'
+    ]
+    
+    for command in commands:
+        if not run_command(command):
+            print_status("Error en instalación desde NodeSource", 1)
+            break
+    else:
+        # Verificar instalación
+        if subprocess.call(["which", "node"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            node_version = subprocess.getoutput("node --version")
+            npm_version = subprocess.getoutput("npm --version")
+            print_status(f"Node.js instalado: {node_version}", 0)
+            print_status(f"npm instalado: {npm_version}", 0)
+            return True
+    
+    # Método 2: Usar snap como fallback
+    print("Intentando instalación con snap...")
+    if run_command('sudo snap install node --classic'):
+        print_status("Node.js instalado con snap", 0)
+        return True
+    
+    # Método 3: Usar repositorio de Ubuntu como último recurso
+    print("Intentando instalación desde repositorio de Ubuntu...")
+    if run_command('sudo apt-get update') and run_command('sudo apt-get install -y nodejs npm'):
+        print_status("Node.js instalado desde repositorio de Ubuntu", 0)
+        return True
+    
+    print_status("Error: No se pudo instalar Node.js con ningún método", 1)
+    return False
+
+def install_nodejs_specific_version():
+    """Instala una versión específica de Node.js usando NVM"""
+    print("Instalación de versión específica de Node.js")
+    print("Nota: Esto requiere NVM (Node Version Manager)")
+    
+    # Verificar si NVM está instalado
+    nvm_check = subprocess.getoutput("command -v nvm")
+    if not nvm_check:
+        print("NVM no está instalado. ¿Deseas instalarlo primero?")
+        choice = input("(si/no): ").strip().lower()
+        if choice in ['si', 's']:
+            if install_nvm():
+                print("NVM instalado. Reinicia tu terminal y ejecuta este comando nuevamente.")
+                return
+        else:
+            print("Instalación cancelada.")
+            return
+    
+    # Mostrar versiones populares
+    print("\nVersiones populares de Node.js:")
+    print("1. 20.x.x (LTS - Recomendada)")
+    print("2. 18.x.x (LTS)")
+    print("3. 16.x.x (LTS)")
+    print("4. Especificar versión manualmente")
+    print("5. Cancelar")
+    
+    choice = input("Seleccione una opción [1-5]: ").strip()
+    
+    version_map = {
+        '1': '20',
+        '2': '18',
+        '3': '16'
+    }
+    
+    if choice in version_map:
+        version = version_map[choice]
+    elif choice == '4':
+        version = input("Ingrese la versión (ej: 18.17.0, 20.10.0): ").strip()
+    elif choice == '5':
+        print("Instalación cancelada.")
+        return
+    else:
+        print("Opción inválida.")
+        return
+    
+    # Comandos para instalar con NVM
+    nvm_commands = [
+        f'source ~/.bashrc && nvm install {version}',
+        f'source ~/.bashrc && nvm use {version}',
+        f'source ~/.bashrc && nvm alias default {version}'
+    ]
+    
+    print(f"Instalando Node.js versión {version}...")
+    
+    for command in nvm_commands:
+        if run_command(command):
+            print_status(f"Comando ejecutado: {command}", 0)
+        else:
+            print_status(f"Error en comando: {command}", 1)
+    
+    print("Instalación completada.")
+    print("Para verificar: node --version && npm --version")
+
+def install_pm2():
+    """Instala PM2 (Process Manager 2)"""
+    print("Instalando PM2 (Process Manager 2)...")
+    
+    # Verificar si npm está disponible
+    if subprocess.call(["which", "npm"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        print_status("npm no está instalado. Instalando Node.js primero...", 1)
+        if not install_nodejs_latest():
+            print_status("Error: No se pudo instalar npm", 1)
+            return False
+    
+    # Instalar PM2 globalmente
+    if run_command('sudo npm install -g pm2'):
+        print_status("PM2 instalado correctamente", 0)
+        
+        # Verificar instalación
+        if subprocess.call(["which", "pm2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            pm2_version = subprocess.getoutput("pm2 --version")
+            print_status(f"PM2 versión: {pm2_version}", 0)
+            
+            # Configurar PM2 para inicio automático
+            print("Configurando PM2 para inicio automático del sistema...")
+            startup_command = subprocess.getoutput("pm2 startup")
+            print(f"Ejecuta el siguiente comando para completar la configuración:\n{startup_command}")
+            
+            print("\nComandos útiles de PM2:")
+            print("  pm2 start app.js          # Iniciar aplicación")
+            print("  pm2 list                  # Listar aplicaciones")
+            print("  pm2 stop app_name         # Detener aplicación")
+            print("  pm2 restart app_name      # Reiniciar aplicación")
+            print("  pm2 delete app_name       # Eliminar aplicación")
+            print("  pm2 logs                  # Ver logs")
+            print("  pm2 monitor               # Monitor en tiempo real")
+            print("  pm2 save                  # Guardar configuración actual")
+            
+            return True
+        else:
+            print_status("Error: PM2 no se instaló correctamente", 1)
+            return False
+    else:
+        print_status("Error al instalar PM2", 1)
+        return False
+
+def nodejs_submenu():
+    """Submenú para Node.js, npm, PM2 y NVM"""
+    while True:
+        os.system('clear')
+        print("--------------------------------------------------")
+        print("        Submenú de Node.js y Herramientas")
+        print("--------------------------------------------------")
+        print("1. Instalar Node.js y npm (versión más reciente)")
+        print("2. Instalar NVM (Node Version Manager)")
+        print("3. Instalar versión específica de Node.js (requiere NVM)")
+        print("4. Instalar PM2 (Process Manager)")
+        print("5. Verificar instalaciones")
+        print("6. Volver al menú principal")
+        print("--------------------------------------------------")
+        
+        choice = input("Seleccione una opción [1-6]: ").strip()
+        
+        if choice == '1':
+            install_nodejs_latest()
+        elif choice == '2':
+            install_nvm()
+        elif choice == '3':
+            install_nodejs_specific_version()
+        elif choice == '4':
+            install_pm2()
+        elif choice == '5':
+            verify_nodejs_installations()
+        elif choice == '6':
+            break
+        else:
+            print("Opción inválida! Por favor seleccione una opción válida.")
+        
+        input("Presione [Enter] para continuar...")
+
+def verify_nodejs_installations():
+    """Verifica las instalaciones de Node.js, npm, PM2 y NVM"""
+    print("Verificando instalaciones de Node.js y herramientas...")
+    print("=" * 50)
+    
+    # Verificar Node.js
+    if subprocess.call(["which", "node"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        node_version = subprocess.getoutput("node --version")
+        print_status(f"Node.js instalado: {node_version}", 0)
+    else:
+        print_status("Node.js: No instalado", 1)
+    
+    # Verificar npm
+    if subprocess.call(["which", "npm"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        npm_version = subprocess.getoutput("npm --version")
+        print_status(f"npm instalado: {npm_version}", 0)
+    else:
+        print_status("npm: No instalado", 1)
+    
+    # Verificar PM2
+    if subprocess.call(["which", "pm2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        pm2_version = subprocess.getoutput("pm2 --version")
+        print_status(f"PM2 instalado: {pm2_version}", 0)
+        
+        # Mostrar aplicaciones PM2
+        pm2_list = subprocess.getoutput("pm2 list")
+        if pm2_list:
+            print("Aplicaciones PM2:")
+            print(pm2_list)
+    else:
+        print_status("PM2: No instalado", 1)
+    
+    # Verificar NVM
+    nvm_dir = os.path.expanduser("~/.nvm")
+    if os.path.exists(nvm_dir):
+        print_status("NVM: Instalado", 0)
+        
+        # Verificar versiones de Node.js instaladas con NVM
+        nvm_versions = subprocess.getoutput("source ~/.bashrc && nvm list")
+        if nvm_versions:
+            print("Versiones de Node.js instaladas con NVM:")
+            print(nvm_versions)
+    else:
+        print_status("NVM: No instalado", 1)
+    
+    print("=" * 50)
+
 def create_ssh_user_with_sudo():
     """Crea usuarios SSH con opción de permisos sudo"""
     while True:
@@ -1598,44 +1892,45 @@ def main_menu():
         print("8. Instalar PHP y módulos")
         print("9. Instalar Laravel")
         print("10. Instalar Git")
+        print("11. Instalar Node.js, npm, PM2 y NVM")
         
         print("\n=== SEGURIDAD ===")
-        print("11. Instalar Fail2Ban")
-        print("12. Instalar y configurar UFW (Firewall)")
-        print("13. Instalar Certbot para certificados SSL/TLS")
-        print("14. Monitoreo SSH por log")
+        print("12. Instalar Fail2Ban")
+        print("13. Instalar y configurar UFW (Firewall)")
+        print("14. Instalar Certbot para certificados SSL/TLS")
+        print("15. Monitoreo SSH por log")
         
         print("\n=== SISTEMA Y OPTIMIZACIÓN ===")
-        print("15. Expandir disco")
-        print("16. Configurar memoria swap")
-        print("17. Optimizar sistema")
-        print("18. Automatizar optimización del sistema con cronjob")
-        print("19. Configurar nuevo disco")
+        print("16. Expandir disco")
+        print("17. Configurar memoria swap")
+        print("18. Optimizar sistema")
+        print("19. Automatizar optimización del sistema con cronjob")
+        print("20. Configurar nuevo disco")
         
         print("\n=== DOCKER Y CONTENEDORES ===")
-        print("20. Gestionar Contenedores Docker")
-        print("21. Crear plantillas Docker Compose")
+        print("21. Gestionar Contenedores Docker")
+        print("22. Crear plantillas Docker Compose")
         
         print("\n=== RED ===")
-        print("22. Configurar red")
+        print("23. Configurar red")
         
         print("\n=== SERVICIOS DE ARCHIVOS ===")
-        print("23. Configurar Samba")
-        print("24. Configurar NFS")
+        print("24. Configurar Samba")
+        print("25. Configurar NFS")
         
         print("\n=== MONITOREO Y HERRAMIENTAS ===")
-        print("25. Instalar herramientas de monitoreo")
-        print("26. Instalar servicios comunes")
-        print("27. Gestionar índices de Elasticsearch")
+        print("26. Instalar herramientas de monitoreo")
+        print("27. Instalar servicios comunes")
+        print("28. Gestionar índices de Elasticsearch")
         
         print("\n=== MANTENIMIENTO ===")
-        print("28. Crear backup del sistema")
-        print("29. Actualizar script")
+        print("29. Crear backup del sistema")
+        print("30. Actualizar script")
         
         print("\n=== SALIR ===")
-        print("30. Salir")
+        print("31. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-30]: ").strip()
+        choice = input("Seleccione una opción [1-31]: ").strip()
         
         if choice == '1':
             configure_multipathd()
@@ -1658,44 +1953,46 @@ def main_menu():
         elif choice == '10':
             install_git()
         elif choice == '11':
-            install_fail2ban()
+            nodejs_submenu()
         elif choice == '12':
-            install_ufw()
+            install_fail2ban()
         elif choice == '13':
-            install_certbot()
+            install_ufw()
         elif choice == '14':
-            configure_ssh_logging()
+            install_certbot()
         elif choice == '15':
-            expand_disk()
+            configure_ssh_logging()
         elif choice == '16':
-            configure_swap()
+            expand_disk()
         elif choice == '17':
-            optimize_system()
+            configure_swap()
         elif choice == '18':
-            configure_cronjob()
+            optimize_system()
         elif choice == '19':
-            configure_new_disk()
+            configure_cronjob()
         elif choice == '20':
-            docker_submenu()
+            configure_new_disk()
         elif choice == '21':
-            create_docker_compose_template()
+            docker_submenu()
         elif choice == '22':
-            network_submenu()
+            create_docker_compose_template()
         elif choice == '23':
-            configure_samba()
+            network_submenu()
         elif choice == '24':
-            configure_nfs()
+            configure_samba()
         elif choice == '25':
-            install_monitoring_tools()
+            configure_nfs()
         elif choice == '26':
-            install_common_services()
+            install_monitoring_tools()
         elif choice == '27':
-            manage_elasticsearch_indices()
+            install_common_services()
         elif choice == '28':
-            backup_system()
+            manage_elasticsearch_indices()
         elif choice == '29':
-            update_script()
+            backup_system()
         elif choice == '30':
+            update_script()
+        elif choice == '31':
             print("Saliendo...")
             break
         else:
