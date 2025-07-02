@@ -7,6 +7,10 @@ import itertools
 import time
 import threading
 import yaml
+import json
+import requests
+import re
+from datetime import datetime
 
 def print_status(message, status, index=None, total=None):
     checkmark = '\u2714'
@@ -39,6 +43,489 @@ def spinning_cursor():
     while True:
         for cursor in '|/-\\':
             yield cursor
+
+def get_latest_docker_version():
+    """Obtiene la versión más reciente de Docker desde GitHub"""
+    try:
+        response = requests.get('https://api.github.com/repos/docker/docker-ce/releases/latest')
+        if response.status_code == 200:
+            data = response.json()
+            return data['tag_name'].replace('v', '')
+    except:
+        pass
+    return "24.0.7"  # Versión por defecto
+
+def get_latest_docker_compose_version():
+    """Obtiene la versión más reciente de Docker Compose desde GitHub"""
+    try:
+        response = requests.get('https://api.github.com/repos/docker/compose/releases/latest')
+        if response.status_code == 200:
+            data = response.json()
+            return data['tag_name']
+    except:
+        pass
+    return "v2.23.3"  # Versión por defecto
+
+def install_docker_improved():
+    """Instala Docker con la versión más reciente"""
+    print("Obteniendo la versión más reciente de Docker...")
+    docker_version = get_latest_docker_version()
+    compose_version = get_latest_docker_compose_version()
+    
+    print(f"Instalando Docker {docker_version} y Docker Compose {compose_version}...")
+    
+    # Instalar dependencias
+    commands = [
+        'sudo apt-get update',
+        'sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release',
+        'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg',
+        'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null',
+        'sudo apt-get update',
+        f'sudo apt-get install -y docker-ce={docker_version} docker-ce-cli={docker_version} containerd.io',
+        'sudo systemctl start docker',
+        'sudo systemctl enable docker',
+        'sudo usermod -aG docker $USER'
+    ]
+    
+    # Instalar Docker Compose
+    commands.extend([
+        f'sudo curl -L "https://github.com/docker/compose/releases/download/{compose_version}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
+        'sudo chmod +x /usr/local/bin/docker-compose'
+    ])
+    
+    success = True
+    for i, command in enumerate(commands, 1):
+        if not run_command(command):
+            success = False
+            break
+        print_status(f"Paso {i}/{len(commands)} completado", 0, i, len(commands))
+    
+    if success:
+        print_status("Docker y Docker Compose instalados correctamente", 0)
+        print(f"Versiones instaladas: Docker {docker_version}, Docker Compose {compose_version}")
+        print("IMPORTANTE: Debes cerrar sesión y volver a iniciar para que los cambios de grupo surtan efecto.")
+    else:
+        print_status("Error al instalar Docker y Docker Compose", 1)
+
+def create_ssh_user_with_sudo():
+    """Crea usuarios SSH con opción de permisos sudo"""
+    while True:
+        choice = input("¿Quieres crear un usuario SSH adicional? (si/no): ").strip().lower()
+        if choice in ['si', 's']:
+            username = input("Ingrese el nombre del usuario: ").strip()
+            password = getpass.getpass("Ingrese la contraseña para el usuario: ")
+            
+            # Crear usuario
+            if run_command(f'sudo adduser --gecos "" --disabled-password {username}'):
+                if run_command(f'echo "{username}:{password}" | sudo chpasswd'):
+                    print_status(f"Usuario SSH {username} creado", 0)
+                    
+                    # Preguntar si necesita permisos sudo
+                    sudo_choice = input(f"¿El usuario {username} requiere permisos sudo? (si/no): ").strip().lower()
+                    if sudo_choice in ['si', 's']:
+                        if run_command(f'sudo usermod -aG sudo {username}'):
+                            print_status(f"Permisos sudo otorgados a {username}", 0)
+                        else:
+                            print_status(f"Error al otorgar permisos sudo a {username}", 1)
+                    
+                    # Crear directorio .ssh y configurar permisos
+                    ssh_dir = f"/home/{username}/.ssh"
+                    if run_command(f'sudo mkdir -p {ssh_dir}'):
+                        if run_command(f'sudo chown {username}:{username} {ssh_dir}'):
+                            if run_command(f'sudo chmod 700 {ssh_dir}'):
+                                print_status(f"Directorio SSH configurado para {username}", 0)
+                    
+                    # Preguntar si quiere configurar clave SSH
+                    ssh_key_choice = input(f"¿Quieres configurar una clave SSH para {username}? (si/no): ").strip().lower()
+                    if ssh_key_choice in ['si', 's']:
+                        configure_ssh_key(username)
+                else:
+                    print_status(f"Error al establecer contraseña para {username}", 1)
+            else:
+                print_status(f"Error al crear usuario SSH {username}", 1)
+        elif choice in ['no', 'n']:
+            break
+        else:
+            print("Por favor responda si o no.")
+
+def configure_ssh_key(username):
+    """Configura clave SSH para un usuario"""
+    print("Opciones para configurar clave SSH:")
+    print("1. Generar nueva clave SSH")
+    print("2. Copiar clave SSH existente")
+    print("3. Cancelar")
+    
+    choice = input("Seleccione una opción [1-3]: ").strip()
+    
+    if choice == '1':
+        # Generar nueva clave
+        key_type = input("Tipo de clave (rsa/ed25519) [ed25519]: ").strip() or "ed25519"
+        key_comment = input("Comentario para la clave (ej. usuario@servidor): ").strip()
+        
+        if run_command(f'sudo -u {username} ssh-keygen -t {key_type} -C "{key_comment}" -f /home/{username}/.ssh/id_{key_type} -N ""'):
+            print_status(f"Clave SSH {key_type} generada para {username}", 0)
+            # Mostrar la clave pública
+            pub_key_path = f"/home/{username}/.ssh/id_{key_type}.pub"
+            if os.path.exists(pub_key_path):
+                with open(pub_key_path, 'r') as f:
+                    pub_key = f.read().strip()
+                print(f"Clave pública generada:\n{pub_key}")
+    
+    elif choice == '2':
+        # Copiar clave existente
+        pub_key = input("Pegue la clave pública SSH: ").strip()
+        authorized_keys_path = f"/home/{username}/.ssh/authorized_keys"
+        
+        with open(authorized_keys_path, 'w') as f:
+            f.write(pub_key + '\n')
+        
+        if run_command(f'sudo chown {username}:{username} {authorized_keys_path}'):
+            if run_command(f'sudo chmod 600 {authorized_keys_path}'):
+                print_status(f"Clave SSH configurada para {username}", 0)
+
+def install_fail2ban():
+    """Instala y configura Fail2Ban"""
+    print("Instalando Fail2Ban...")
+    commands = [
+        'sudo apt-get update',
+        'sudo apt-get install -y fail2ban',
+        'sudo systemctl start fail2ban',
+        'sudo systemctl enable fail2ban'
+    ]
+    
+    success = True
+    for command in commands:
+        if not run_command(command):
+            success = False
+            break
+    
+    if success:
+        print_status("Fail2Ban instalado y configurado", 0)
+        # Configurar jail básico para SSH
+        configure_fail2ban_ssh()
+    else:
+        print_status("Error al instalar Fail2Ban", 1)
+
+def configure_fail2ban_ssh():
+    """Configura Fail2Ban para proteger SSH"""
+    jail_config = """[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600
+findtime = 600
+"""
+    
+    with open('/etc/fail2ban/jail.local', 'w') as f:
+        f.write(jail_config)
+    
+    if run_command('sudo systemctl restart fail2ban'):
+        print_status("Fail2Ban configurado para proteger SSH", 0)
+
+def install_ufw():
+    """Instala y configura UFW (Uncomplicated Firewall)"""
+    print("Instalando y configurando UFW...")
+    commands = [
+        'sudo apt-get update',
+        'sudo apt-get install -y ufw',
+        'sudo ufw --force reset',
+        'sudo ufw default deny incoming',
+        'sudo ufw default allow outgoing',
+        'sudo ufw allow ssh',
+        'sudo ufw allow 80/tcp',
+        'sudo ufw allow 443/tcp',
+        'sudo ufw --force enable'
+    ]
+    
+    success = True
+    for command in commands:
+        if not run_command(command):
+            success = False
+            break
+    
+    if success:
+        print_status("UFW instalado y configurado", 0)
+        print("Puertos abiertos: SSH (22), HTTP (80), HTTPS (443)")
+    else:
+        print_status("Error al instalar UFW", 1)
+
+def install_certbot():
+    """Instala Certbot para certificados SSL/TLS"""
+    print("Instalando Certbot...")
+    commands = [
+        'sudo apt-get update',
+        'sudo apt-get install -y certbot python3-certbot-nginx',
+        'sudo apt-get install -y certbot python3-certbot-apache'
+    ]
+    
+    success = True
+    for command in commands:
+        if not run_command(command):
+            success = False
+            break
+    
+    if success:
+        print_status("Certbot instalado", 0)
+        print("Para obtener un certificado SSL:")
+        print("sudo certbot --nginx -d tu-dominio.com")
+        print("sudo certbot --apache -d tu-dominio.com")
+    else:
+        print_status("Error al instalar Certbot", 1)
+
+def install_common_services():
+    """Instala servicios comunes útiles"""
+    print("Instalando servicios comunes...")
+    services = [
+        'htop', 'vim', 'wget', 'curl', 'unzip', 'zip', 'tree', 
+        'net-tools', 'nmap', 'tcpdump', 'iotop', 'ncdu', 'rsync'
+    ]
+    
+    success = True
+    for i, service in enumerate(services, 1):
+        if run_command(f'sudo apt-get install -y {service}'):
+            print_status(f"{service} instalado", 0, i, len(services))
+        else:
+            print_status(f"Error al instalar {service}", 1)
+            success = False
+    
+    if success:
+        print_status("Servicios comunes instalados", 0)
+
+def configure_swap():
+    """Configura memoria swap"""
+    print("Configurando memoria swap...")
+    
+    # Verificar si ya existe swap
+    swap_check = subprocess.getoutput('swapon --show')
+    if swap_check:
+        print("Ya existe memoria swap configurada:")
+        print(swap_check)
+        choice = input("¿Quieres reconfigurar el swap? (si/no): ").strip().lower()
+        if choice not in ['si', 's']:
+            return
+    
+    # Obtener tamaño de RAM
+    ram_size = int(subprocess.getoutput("grep MemTotal /proc/meminfo | awk '{print $2}'")) // 1024  # MB
+    swap_size = min(ram_size * 2, 8192)  # 2x RAM o máximo 8GB
+    
+    print(f"RAM detectada: {ram_size} MB")
+    print(f"Tamaño de swap recomendado: {swap_size} MB")
+    
+    custom_size = input(f"Ingrese el tamaño del swap en MB (Enter para {swap_size}): ").strip()
+    if custom_size:
+        try:
+            swap_size = int(custom_size)
+        except ValueError:
+            print("Tamaño inválido, usando valor por defecto")
+    
+    commands = [
+        f'sudo fallocate -l {swap_size}M /swapfile',
+        'sudo chmod 600 /swapfile',
+        'sudo mkswap /swapfile',
+        'sudo swapon /swapfile',
+        'echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab'
+    ]
+    
+    success = True
+    for command in commands:
+        if not run_command(command):
+            success = False
+            break
+    
+    if success:
+        print_status(f"Swap configurado ({swap_size} MB)", 0)
+    else:
+        print_status("Error al configurar swap", 1)
+
+def optimize_system():
+    """Optimiza el sistema"""
+    print("Optimizando sistema...")
+    
+    # Optimizar parámetros del kernel
+    sysctl_config = """# Optimizaciones del sistema
+vm.swappiness = 10
+vm.dirty_ratio = 15
+vm.dirty_background_ratio = 5
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 5000
+net.ipv4.tcp_max_syn_backlog = 65535
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 1200
+net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 1024 65535
+"""
+    
+    with open('/etc/sysctl.conf', 'a') as f:
+        f.write(sysctl_config)
+    
+    if run_command('sudo sysctl -p'):
+        print_status("Parámetros del kernel optimizados", 0)
+    
+    # Optimizar límites del sistema
+    limits_config = """# Límites del sistema optimizados
+* soft nofile 65535
+* hard nofile 65535
+* soft nproc 65535
+* hard nproc 65535
+root soft nofile 65535
+root hard nofile 65535
+"""
+    
+    with open('/etc/security/limits.conf', 'a') as f:
+        f.write(limits_config)
+    
+    print_status("Límites del sistema optimizados", 0)
+
+def install_monitoring_tools():
+    """Instala herramientas de monitoreo"""
+    print("Instalando herramientas de monitoreo...")
+    
+    tools = [
+        'htop', 'iotop', 'ncdu', 'nethogs', 'iftop', 'glances'
+    ]
+    
+    success = True
+    for tool in tools:
+        if run_command(f'sudo apt-get install -y {tool}'):
+            print_status(f"{tool} instalado", 0)
+        else:
+            print_status(f"Error al instalar {tool}", 1)
+            success = False
+    
+    if success:
+        print_status("Herramientas de monitoreo instaladas", 0)
+
+def create_docker_compose_template():
+    """Crea plantillas de Docker Compose comunes"""
+    print("Creando plantillas de Docker Compose...")
+    
+    templates = {
+        'nginx': """version: '3.8'
+services:
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    restart: unless-stopped
+""",
+        'wordpress': """version: '3.8'
+services:
+  wordpress:
+    image: wordpress:latest
+    container_name: wordpress
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress_password
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress_data:/var/www/html
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: mysql:5.7
+    container_name: wordpress_db
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress_password
+      MYSQL_ROOT_PASSWORD: somewordpress
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  wordpress_data:
+  db_data:
+""",
+        'nextcloud': """version: '3.8'
+services:
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    ports:
+      - "8080:80"
+    environment:
+      MYSQL_HOST: db
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: nextcloud_password
+    volumes:
+      - nextcloud_data:/var/www/html
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: mariadb:10.6
+    container_name: nextcloud_db
+    environment:
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: nextcloud_password
+      MYSQL_ROOT_PASSWORD: somewordpress
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  nextcloud_data:
+  db_data:
+"""
+    }
+    
+    for name, template in templates.items():
+        filename = f"docker-compose-{name}.yml"
+        with open(filename, 'w') as f:
+            f.write(template)
+        print_status(f"Plantilla {filename} creada", 0)
+    
+    print("Plantillas creadas en el directorio actual")
+
+def backup_system():
+    """Crea un backup del sistema"""
+    print("Creando backup del sistema...")
+    
+    backup_dir = f"/backup/system-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    
+    if run_command(f'sudo mkdir -p {backup_dir}'):
+        # Backup de configuraciones importantes
+        important_dirs = [
+            '/etc/nginx',
+            '/etc/mysql',
+            '/etc/ssh',
+            '/etc/fail2ban',
+            '/etc/ufw',
+            '/var/www'
+        ]
+        
+        for dir_path in important_dirs:
+            if os.path.exists(dir_path):
+                backup_path = f"{backup_dir}{dir_path}"
+                if run_command(f'sudo mkdir -p {os.path.dirname(backup_path)}'):
+                    if run_command(f'sudo cp -r {dir_path} {backup_path}'):
+                        print_status(f"Backup de {dir_path}", 0)
+        
+        # Backup de bases de datos
+        if run_command('which mysql'):
+            if run_command(f'sudo mysqldump --all-databases > {backup_dir}/all_databases.sql'):
+                print_status("Backup de bases de datos MySQL", 0)
+        
+        print_status(f"Backup completado en {backup_dir}", 0)
+    else:
+        print_status("Error al crear directorio de backup", 1)
 
 def manage_elasticsearch_indices():
     while True:
@@ -330,19 +817,8 @@ def configure_timezone():
         print_status("Error al configurar zona horaria", 1)
 
 def create_ssh_users():
-    while True:
-        choice = input("¿Quieres crear un usuario SSH adicional? (si/no): ").strip().lower()
-        if choice in ['si', 's']:
-            username = input("Ingrese el nombre del usuario: ").strip()
-            password = getpass.getpass("Ingrese la contraseña para el usuario: ")
-            if run_command(f'sudo adduser --gecos "" --disabled-password {username}') and run_command(f'echo "{username}:{password}" | sudo chpasswd'):
-                print_status(f"Usuario SSH {username} creado", 0)
-            else:
-                print_status(f"Error al crear usuario SSH {username}", 1)
-        elif choice in ['no', 'n']:
-            break
-        else:
-            print("Por favor responda si o no.")
+    """Función legacy - redirige a la nueva función mejorada"""
+    create_ssh_user_with_sudo()
 
 def list_available_versions(package_name):
     result = subprocess.getoutput(f'apt-cache madison {package_name}')
@@ -498,12 +974,8 @@ def install_mariadb():
         input("Presione [Enter] para continuar...")
 
 def install_docker():
-    choice = input("¿Quieres instalar Docker y Docker Compose? (si/no): ").strip().lower()
-    if choice in ['si', 's']:
-        if run_command('sudo apt-get update') and run_command('sudo apt-get install -y docker.io') and run_command('sudo systemctl start docker') and run_command('sudo systemctl enable docker') and run_command('sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose') and run_command('sudo chmod +x /usr/local/bin/docker-compose'):
-            print_status("Docker y Docker Compose instalados", 0)
-        else:
-            print_status("Error al instalar Docker y Docker Compose", 1)
+    """Función legacy - redirige a la nueva función mejorada"""
+    install_docker_improved()
 
 def install_nginx():
     while True:
@@ -700,8 +1172,6 @@ def configure_virtual_ip():
     else:
         print("Selección inválida.")
 
-
-
 def configure_dhcp():
     while True:
         interfaces = list_interfaces()
@@ -806,9 +1276,6 @@ def docker_submenu():
         else:
             print("Opción inválida! Por favor seleccione una opción válida.")
         input("Presione [Enter] para continuar...")
-
-
-
 
 def configure_samba():
     while True:
@@ -915,40 +1382,63 @@ def set_nfs_permissions():
     else:
         print_status("Error al establecer permisos", 1)
 
-
 def main_menu():
-    total_options = 23
+    total_options = 35
     while True:
         os.system('clear')
         print("--------------------------------------------------")
-        print("               Menú de Instalación")
+        print("           Menú de Instalación Mejorado")
         print("--------------------------------------------------")
+        print("=== CONFIGURACIÓN BÁSICA ===")
         print("1. Configurar multipathd")
         print("2. Configurar zona horaria (America/Lima)")
-        print("3. Crear usuarios SSH")
+        print("3. Crear usuarios SSH (con permisos sudo)")
         print("4. Configurar MySQL")
         print("5. Configurar MariaDB")
-        print("6. Instalar Docker y Docker Compose")
+        print("6. Instalar Docker y Docker Compose (versión más reciente)")
         print("7. Instalar Nginx")
         print("8. Instalar PHP y módulos")
         print("9. Instalar Laravel")
-        print("10. Instalar Fail2Ban")
-        print("11. Instalar y configurar UFW (Uncomplicated Firewall)")
-        print("12. Instalar Git")
+        print("10. Instalar Git")
+        
+        print("\n=== SEGURIDAD ===")
+        print("11. Instalar Fail2Ban")
+        print("12. Instalar y configurar UFW (Firewall)")
         print("13. Instalar Certbot para certificados SSL/TLS")
         print("14. Monitoreo SSH por log")
+        
+        print("\n=== SISTEMA Y OPTIMIZACIÓN ===")
         print("15. Expandir disco")
-        print("16. Automatizar optimización del sistema con cronjob")
-        print("17. Gestionar Contenedores Docker")
-        print("18. Configurar red")
-        print("19. Actualizar script")
-        print("20. Gestionar índices de Elasticsearch")
-        print("21. Configurar nuevo disco")
-        print("22. Configurar Samba")
-        print("23. Configurar NFS")
-        print("24. Salir")
+        print("16. Configurar memoria swap")
+        print("17. Optimizar sistema")
+        print("18. Automatizar optimización del sistema con cronjob")
+        print("19. Configurar nuevo disco")
+        
+        print("\n=== DOCKER Y CONTENEDORES ===")
+        print("20. Gestionar Contenedores Docker")
+        print("21. Crear plantillas Docker Compose")
+        
+        print("\n=== RED ===")
+        print("22. Configurar red")
+        
+        print("\n=== SERVICIOS DE ARCHIVOS ===")
+        print("23. Configurar Samba")
+        print("24. Configurar NFS")
+        
+        print("\n=== MONITOREO Y HERRAMIENTAS ===")
+        print("25. Instalar herramientas de monitoreo")
+        print("26. Instalar servicios comunes")
+        print("27. Gestionar índices de Elasticsearch")
+        
+        print("\n=== MANTENIMIENTO ===")
+        print("28. Crear backup del sistema")
+        print("29. Actualizar script")
+        
+        print("\n=== SALIR ===")
+        print("30. Salir")
         print("--------------------------------------------------")
-        choice = input("Seleccione una opción [1-24]: ").strip()
+        choice = input("Seleccione una opción [1-30]: ").strip()
+        
         if choice == '1':
             configure_multipathd()
         elif choice == '2':
@@ -968,11 +1458,11 @@ def main_menu():
         elif choice == '9':
             install_laravel()
         elif choice == '10':
-            install_fail2ban()
-        elif choice == '11':
-            install_ufw()
-        elif choice == '12':
             install_git()
+        elif choice == '11':
+            install_fail2ban()
+        elif choice == '12':
+            install_ufw()
         elif choice == '13':
             install_certbot()
         elif choice == '14':
@@ -980,22 +1470,34 @@ def main_menu():
         elif choice == '15':
             expand_disk()
         elif choice == '16':
-            configure_cronjob()
+            configure_swap()
         elif choice == '17':
-            docker_submenu()
+            optimize_system()
         elif choice == '18':
-            network_submenu()
+            configure_cronjob()
         elif choice == '19':
-            update_script()
-        elif choice == '20':
-            manage_elasticsearch_indices()
-        elif choice == '21':
             configure_new_disk()
+        elif choice == '20':
+            docker_submenu()
+        elif choice == '21':
+            create_docker_compose_template()
         elif choice == '22':
-            configure_samba()
+            network_submenu()
         elif choice == '23':
-            configure_nfs()
+            configure_samba()
         elif choice == '24':
+            configure_nfs()
+        elif choice == '25':
+            install_monitoring_tools()
+        elif choice == '26':
+            install_common_services()
+        elif choice == '27':
+            manage_elasticsearch_indices()
+        elif choice == '28':
+            backup_system()
+        elif choice == '29':
+            update_script()
+        elif choice == '30':
             print("Saliendo...")
             break
         else:

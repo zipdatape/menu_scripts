@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  nextcloud:
+    image: nextcloud:latest
+    container_name: nextcloud
+    ports:
+      - "8080:80"
+    environment:
+      MYSQL_HOST: db
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: nextcloud_password
+      NEXTCLOUD_TRUSTED_DOMAINS: localhost,127.0.0.1
+    volumes:
+      - nextcloud_data:/var/www/html
+      - nextcloud_apps:/var/www/html/custom_apps
+      - nextcloud_config:/var/www/html/config
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - nextcloud_network
+
+  db:
+    image: mariadb:10.6
+    container_name: nextcloud_db
+    environment:
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: nextcloud_password
+      MYSQL_ROOT_PASSWORD: somewordpress
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - nextcloud_network
+
+  redis:
+    image: redis:alpine
+    container_name: nextcloud_redis
+    restart: unless-stopped
+    networks:
+      - nextcloud_network
+
+volumes:
+  nextcloud_data:
+  nextcloud_apps:
+  nextcloud_config:
+  db_data:
+
+networks:
+  nextcloud_network:
+    driver: bridge 
