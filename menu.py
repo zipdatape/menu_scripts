@@ -74,38 +74,236 @@ def install_docker_improved():
     
     print(f"Instalando Docker {docker_version} y Docker Compose {compose_version}...")
     
-    # Instalar dependencias
-    commands = [
-        'sudo apt-get update',
-        'sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release',
-        'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg',
-        'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null',
-        'sudo apt-get update',
-        f'sudo apt-get install -y docker-ce={docker_version} docker-ce-cli={docker_version} containerd.io',
-        'sudo systemctl start docker',
-        'sudo systemctl enable docker',
-        'sudo usermod -aG docker $USER'
-    ]
+    # Verificar si Docker ya está instalado
+    if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+        print("Docker ya está instalado. Verificando versión...")
+        current_version = subprocess.getoutput("docker --version")
+        print(f"Versión actual: {current_version}")
+        choice = input("¿Deseas reinstalar Docker? (si/no): ").strip().lower()
+        if choice not in ['si', 's']:
+            print("Instalación cancelada.")
+            return
     
-    # Instalar Docker Compose
-    commands.extend([
-        f'sudo curl -L "https://github.com/docker/compose/releases/download/{compose_version}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
-        'sudo chmod +x /usr/local/bin/docker-compose'
-    ])
+    # Método 1: Instalación desde repositorio oficial (recomendado)
+    print("Método 1: Instalación desde repositorio oficial...")
+    if install_docker_from_repo():
+        return
     
-    success = True
-    for i, command in enumerate(commands, 1):
-        if not run_command(command):
-            success = False
-            break
-        print_status(f"Paso {i}/{len(commands)} completado", 0, i, len(commands))
+    # Método 2: Instalación usando script oficial (fallback)
+    print("Método 2: Instalación usando script oficial...")
+    if install_docker_from_script():
+        return
     
-    if success:
-        print_status("Docker y Docker Compose instalados correctamente", 0)
-        print(f"Versiones instaladas: Docker {docker_version}, Docker Compose {compose_version}")
-        print("IMPORTANTE: Debes cerrar sesión y volver a iniciar para que los cambios de grupo surtan efecto.")
-    else:
-        print_status("Error al instalar Docker y Docker Compose", 1)
+    # Método 3: Instalación usando apt (último recurso)
+    print("Método 3: Instalación usando apt...")
+    if install_docker_from_apt():
+        return
+    
+    print_status("Error: No se pudo instalar Docker con ningún método", 1)
+
+def install_docker_from_repo():
+    """Instala Docker desde el repositorio oficial"""
+    try:
+        # Instalar dependencias
+        print("Instalando dependencias...")
+        deps_commands = [
+            'sudo apt-get update',
+            'sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release'
+        ]
+        
+        for command in deps_commands:
+            if not run_command(command):
+                return False
+        
+        # Configurar repositorio Docker
+        print("Configurando repositorio Docker...")
+        
+        # Eliminar archivo de clave existente si existe
+        if os.path.exists('/usr/share/keyrings/docker-archive-keyring.gpg'):
+            run_command('sudo rm -f /usr/share/keyrings/docker-archive-keyring.gpg')
+        
+        # Agregar clave GPG
+        gpg_commands = [
+            'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg',
+            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null'
+        ]
+        
+        for command in gpg_commands:
+            if not run_command(command):
+                return False
+        
+        # Actualizar repositorios
+        if not run_command('sudo apt-get update'):
+            return False
+        
+        # Instalar Docker (sin versión específica para mayor compatibilidad)
+        print("Instalando Docker...")
+        docker_install_commands = [
+            'sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'
+        ]
+        
+        for command in docker_install_commands:
+            if not run_command(command):
+                return False
+        
+        # Configurar Docker
+        print("Configurando Docker...")
+        docker_config_commands = [
+            'sudo systemctl start docker',
+            'sudo systemctl enable docker'
+        ]
+        
+        for command in docker_config_commands:
+            if not run_command(command):
+                return False
+        
+        # Agregar usuario al grupo docker
+        current_user = os.getenv('USER') or os.getenv('SUDO_USER') or 'root'
+        if current_user != 'root':
+            run_command(f'sudo usermod -aG docker {current_user}')
+        
+        # Instalar Docker Compose standalone
+        print("Instalando Docker Compose...")
+        compose_version = get_latest_docker_compose_version()
+        compose_commands = [
+            f'sudo curl -L "https://github.com/docker/compose/releases/download/{compose_version}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
+            'sudo chmod +x /usr/local/bin/docker-compose'
+        ]
+        
+        for command in compose_commands:
+            if not run_command(command):
+                return False
+        
+        # Verificar instalación
+        print("Verificando instalación...")
+        if verify_docker_installation():
+            print_status("Docker y Docker Compose instalados correctamente desde repositorio oficial", 0)
+            print("IMPORTANTE: Debes cerrar sesión y volver a iniciar para que los cambios de grupo surtan efecto.")
+            print("Para verificar la instalación, ejecuta: docker --version && docker-compose --version")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error en instalación desde repositorio: {e}")
+        return False
+
+def install_docker_from_script():
+    """Instala Docker usando el script oficial"""
+    try:
+        print("Descargando script de instalación oficial...")
+        
+        # Descargar script oficial
+        if not run_command('curl -fsSL https://get.docker.com -o get-docker.sh'):
+            return False
+        
+        # Hacer ejecutable y ejecutar
+        if not run_command('sudo sh get-docker.sh'):
+            return False
+        
+        # Limpiar script
+        run_command('rm -f get-docker.sh')
+        
+        # Agregar usuario al grupo docker
+        current_user = os.getenv('USER') or os.getenv('SUDO_USER') or 'root'
+        if current_user != 'root':
+            run_command(f'sudo usermod -aG docker {current_user}')
+        
+        # Instalar Docker Compose
+        print("Instalando Docker Compose...")
+        compose_version = get_latest_docker_compose_version()
+        compose_commands = [
+            f'sudo curl -L "https://github.com/docker/compose/releases/download/{compose_version}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose',
+            'sudo chmod +x /usr/local/bin/docker-compose'
+        ]
+        
+        for command in compose_commands:
+            if not run_command(command):
+                return False
+        
+        # Verificar instalación
+        if verify_docker_installation():
+            print_status("Docker y Docker Compose instalados correctamente usando script oficial", 0)
+            print("IMPORTANTE: Debes cerrar sesión y volver a iniciar para que los cambios de grupo surtan efecto.")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error en instalación desde script: {e}")
+        return False
+
+def install_docker_from_apt():
+    """Instala Docker usando apt (último recurso)"""
+    try:
+        print("Instalando Docker desde repositorios del sistema...")
+        
+        # Actualizar repositorios
+        if not run_command('sudo apt-get update'):
+            return False
+        
+        # Instalar Docker
+        if not run_command('sudo apt-get install -y docker.io docker-compose'):
+            return False
+        
+        # Configurar Docker
+        docker_config_commands = [
+            'sudo systemctl start docker',
+            'sudo systemctl enable docker'
+        ]
+        
+        for command in docker_config_commands:
+            if not run_command(command):
+                return False
+        
+        # Agregar usuario al grupo docker
+        current_user = os.getenv('USER') or os.getenv('SUDO_USER') or 'root'
+        if current_user != 'root':
+            run_command(f'sudo usermod -aG docker {current_user}')
+        
+        # Verificar instalación
+        if verify_docker_installation():
+            print_status("Docker instalado correctamente desde repositorios del sistema", 0)
+            print("IMPORTANTE: Debes cerrar sesión y volver a iniciar para que los cambios de grupo surtan efecto.")
+            return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error en instalación desde apt: {e}")
+        return False
+
+def verify_docker_installation():
+    """Verifica que Docker y Docker Compose estén instalados correctamente"""
+    try:
+        # Verificar Docker
+        if subprocess.call(["which", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            docker_version_output = subprocess.getoutput("docker --version")
+            print_status(f"Docker instalado: {docker_version_output}", 0)
+        else:
+            print_status("Error: Docker no se instaló correctamente", 1)
+            return False
+        
+        # Verificar Docker Compose
+        if subprocess.call(["which", "docker-compose"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            compose_version_output = subprocess.getoutput("docker-compose --version")
+            print_status(f"Docker Compose instalado: {compose_version_output}", 0)
+        else:
+            print_status("Error: Docker Compose no se instaló correctamente", 1)
+            return False
+        
+        # Probar Docker
+        if subprocess.call(["sudo", "docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            print_status("Docker funcionando correctamente", 0)
+        else:
+            print_status("Error: Docker no está funcionando correctamente", 1)
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error en verificación: {e}")
+        return False
 
 def create_ssh_user_with_sudo():
     """Crea usuarios SSH con opción de permisos sudo"""
